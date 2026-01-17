@@ -1,90 +1,103 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import requests
-from datetime import datetime
+import itertools
+import random
 
 # Configuração da página
 st.set_page_config(page_title="IA Mega-Sena Pro", layout="wide", page_icon="🎰")
 
-# --- FUNÇÕES DE DADOS ---
 @st.cache_data
 def carregar_dados():
-    # Lê o seu arquivo CSV (ajustado para o formato que você enviou)
-    df = pd.read_csv('Mega-Sena.csv', sep=';', encoding='latin-1')
-    # Limpeza básica: remove espaços nos nomes das colunas
-    df.columns = [c.strip() for c in df.columns]
-    return df
-
-def buscar_atualizacoes(df_local):
-    # Tenta buscar o último sorteio via API pública para manter o app atualizado
     try:
-        url = "https://loteriascaixa-api.herokuapp.com/api/megasena/latest"
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            dados_api = response.json()
-            ultimo_concurso_api = int(dados_api['concurso'])
-            ultimo_concurso_csv = int(df_local['Concurso'].max())
-            
-            if ultimo_concurso_api > ultimo_concurso_csv:
-                st.toast(f"Novo sorteio detectado: Concurso {ultimo_concurso_api}!")
-                # Aqui o sistema já sabe que há dados novos disponíveis
-    except:
-        pass # Se a API estiver fora do ar, o app segue usando o CSV perfeitamente
-    return df_local
+        df = pd.read_csv('Mega-Sena.csv', sep=';', encoding='latin-1')
+        df.columns = [c.strip() for c in df.columns]
+        df['Concurso'] = pd.to_numeric(df['Concurso'], errors='coerce')
+        return df.dropna(subset=['Concurso'])
+    except Exception as e:
+        st.error(f"Erro ao carregar o arquivo CSV: {e}")
+        return pd.DataFrame()
 
-# --- LÓGICA DE IA (ANÁLISE PROBABILÍSTICA) ---
-def analisar_tendencias(df):
+def analisar_estatisticas(df):
     colunas_dezenas = ['Bola1', 'Bola2', 'Bola3', 'Bola4', 'Bola5', 'Bola6']
+    ultimo_concurso = df['Concurso'].max()
     todos_numeros = df[colunas_dezenas].values.flatten()
     
-    # Contagem de frequência
-    frequencia = pd.Series(todos_numeros).value_counts().sort_index()
-    frequencia = frequencia.reindex(range(1, 61), fill_value=0)
-    return frequencia
-
-def gerar_jogos_ia(frequencia, qtd_jogos=5):
-    # A IA usa a frequência como peso para a probabilidade
-    # Números que saem mais têm uma chance ligeiramente maior de serem escolhidos
-    pesos = (frequencia.values + 1) / (frequencia.sum() + 60)
-    numeros = np.arange(1, 61)
+    # Frequência
+    freq = pd.Series(todos_numeros).value_counts().reindex(range(1, 61), fill_value=0)
     
-    jogos = []
-    for _ in range(qtd_jogos):
-        escolha = np.random.choice(numeros, size=6, replace=False, p=pesos)
-        jogos.append(sorted(escolha))
-    return jogos
+    # Atrasos
+    atrasos = {}
+    for n in range(1, 61):
+        ultimo_sorteio_n = df[df[colunas_dezenas].isin([n]).any(axis=1)]['Concurso'].max()
+        atrasos[n] = int(ultimo_concurso - ultimo_sorteio_n) if not pd.isna(ultimo_sorteio_n) else int(ultimo_concurso)
+    
+    return freq, pd.Series(atrasos)
 
-# --- INTERFACE VISUAL ---
-st.title("🎰 IA de Combinações Mega-Sena")
-st.markdown("Este sistema utiliza o histórico oficial para calcular probabilidades e sugerir jogos.")
+# --- INTERFACE PRINCIPAL ---
+st.title("🎰 IA Mega-Sena Profissional")
+st.markdown("Análise de tendências e fechamentos matemáticos.")
 
 df = carregar_dados()
-df = buscar_atualizacoes(df)
-freq = analisar_tendencias(df)
+if not df.empty:
+    freq, atrasos = analisar_estatisticas(df)
 
-col1, col2 = st.columns([1, 2])
+    tab1, tab2 = st.tabs(["🚀 Gerador IA (Probabilidade)", "📐 Fechamento Matemático"])
 
-with col1:
-    st.subheader("⚙️ Configurações")
-    num_jogos = st.slider("Quantos jogos deseja gerar?", 1, 20, 5)
-    if st.button("Gerar Combinações Inteligentes"):
-        jogos = gerar_jogos_ia(freq, num_jogos)
-        st.session_state['jogos_gerados'] = jogos
+    with tab1:
+        st.subheader("Sugestão Baseada em Tendências")
+        col_a, col_b = st.columns([1, 2])
+        
+        with col_a:
+            fator_atraso = st.slider("Peso do Atraso vs Frequência", 0.0, 1.0, 0.5)
+            qtd_jogos = st.number_input("Quantidade de jogos", 1, 20, 5)
+            
+            if st.button("Gerar Jogos IA"):
+                # Lógica de pesos
+                pesos = ( (freq / freq.max()) * (1 - fator_atraso) ) + ( (atrasos / atrasos.max()) * fator_atraso )
+                pesos = (pesos + 0.01) / (pesos.sum() + 0.6)
+                
+                jogos = []
+                for _ in range(qtd_jogos):
+                    j = sorted(np.random.choice(range(1, 61), size=6, replace=False, p=pesos))
+                    jogos.append(j)
+                st.session_state['ia_jogos'] = jogos
 
-with col2:
-    st.subheader("📊 Frequência Histórica")
-    st.bar_chart(freq)
+        with col_b:
+            if 'ia_jogos' in st.session_state:
+                for j in st.session_state['ia_jogos']:
+                    st.success(f"**Jogo:** {' - '.join([f'{n:02d}' for n in j])}")
 
-# Exibição dos Resultados
-if 'jogos_gerados' in st.session_state:
-    st.divider()
-    st.subheader("🎯 Sugestões da IA")
-    for i, jogo in enumerate(st.session_state['jogos_gerados']):
-        # Formatação visual das dezenas
-        texto_jogo = "  -  ".join([f"{n:02d}" for n in jogo])
-        st.success(f"**Jogo {i+1}:** {texto_jogo}")
+    with tab2:
+        st.subheader("Fechamento (Garanta prêmios com mais números)")
+        st.info("Escolha de 8 a 12 números. O sistema gerará as combinações de 6 números para otimizar suas chances.")
+        
+        # Sugestão de números baseada na IA para o fechamento
+        sugestao_numeros = freq.sort_values(ascending=False).head(12).index.tolist()
+        
+        selecionados = st.multiselect(
+            "Selecione as dezenas para o fechamento:",
+            options=list(range(1, 61)),
+            default=sugestao_numeros[:10]
+        )
+        
+        if len(selecionados) < 7:
+            st.warning("Selecione pelo menos 7 números para um fechamento.")
+        else:
+            total_comb = len(list(itertools.combinations(selecionados, 6)))
+            st.write(f"Total de combinações possíveis: **{total_comb}**")
+            
+            # Limitar para não travar o navegador se escolherem números demais
+            amostra = st.slider("Quantos jogos do fechamento deseja visualizar?", 1, min(total_comb, 50), 10)
+            
+            if st.button("Gerar Fechamento"):
+                comb_completas = list(itertools.combinations(selecionados, 6))
+                jogos_f = random.sample(comb_completas, amostra)
+                
+                cols = st.columns(2)
+                for i, jogo in enumerate(jogos_f):
+                    with cols[i % 2]:
+                        st.code(f"Jogo {i+1:02d}: {' - '.join([f'{n:02d}' for n in sorted(jogo)])}")
 
-# Tabela de Dados
-with st.expander("📂 Visualizar Dados Base (CSV)"):
-    st.dataframe(df.sort_values(by='Concurso', ascending=False).head(50))
+st.divider()
+st.caption(f"Último concurso analisado: {df['Concurso'].max() if not df.empty else 'N/A'}")
