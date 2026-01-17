@@ -6,7 +6,7 @@ import random
 import requests
 
 # Configuração da página
-st.set_page_config(page_title="Mega-Sena Pro", layout="wide", page_icon="🍀")
+st.set_page_config(page_title="IA Mega-Sena Pro", layout="wide", page_icon="🎰")
 
 # --- FUNÇÕES DE DADOS E API ---
 @st.cache_data(ttl=3600) # Atualiza o cache a cada 1 hora
@@ -61,8 +61,8 @@ def analisar_estatisticas(df):
     return freq, pd.Series(atrasos)
 
 # --- INÍCIO DO APP ---
-st.title("🍀Mega-Sena Profissional")
-st.markdown("Sistema inteligente com atualização automática e análise de probabilidade.")
+st.title("🎰 IA Mega-Sena Profissional")
+st.markdown("Sistema inteligente com atualização automática via API e análise de probabilidade.")
 
 df = carregar_e_atualizar_dados()
 if not df.empty:
