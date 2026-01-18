@@ -5,7 +5,7 @@ import itertools
 import random
 
 # Configuração da página
-st.set_page_config(page_title="IA Mega-Sena Pro", layout="wide", page_icon="🎰")
+st.set_page_config(page_title="IA Mega-Sena Pro", layout="wide", page_icon="💰")
 
 @st.cache_data
 def carregar_dados():
@@ -34,7 +34,7 @@ def analisar_estatisticas(df):
     return freq, pd.Series(atrasos)
 
 # --- INTERFACE PRINCIPAL ---
-st.title("🎰 Mega-Sena Profissional")
+st.title("💰 Mega-Sena Profissional")
 
 df = carregar_dados()
 if not df.empty:
@@ -103,4 +103,5 @@ if not df.empty:
 
 st.divider()
 st.caption(f"Dados atualizados até o Concurso: {df['Concurso'].max() if not df.empty else 'N/A'}")
+
 
