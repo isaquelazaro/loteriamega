@@ -34,7 +34,7 @@ def analisar_estatisticas(df):
     return freq, pd.Series(atrasos)
 
 # --- INTERFACE PRINCIPAL ---
-st.title("🎰 IA Mega-Sena Profissional")
+st.title("🎰 Mega-Sena Profissional")
 
 df = carregar_dados()
 if not df.empty:
@@ -103,3 +103,4 @@ if not df.empty:
 
 st.divider()
 st.caption(f"Dados atualizados até o Concurso: {df['Concurso'].max() if not df.empty else 'N/A'}")
+
