@@ -3,97 +3,103 @@ import pandas as pd
 import numpy as np
 import itertools
 import random
-import requests
 
-st.set_page_config(page_title="IA Mega-Sena Pro", layout="wide", page_icon="🍀")
+# Configuração da página
+st.set_page_config(page_title="IA Mega-Sena Pro", layout="wide", page_icon="🎰")
 
-@st.cache_data(ttl=3600)
-def carregar_e_atualizar_dados():
+@st.cache_data
+def carregar_dados():
     try:
-        # Carrega o CSV com proteção de formato
-        df = pd.read_csv('Mega-Sena.csv', sep=';', encoding='latin-1', low_memory=False)
+        # Carrega o ficheiro CSV que você subiu
+        df = pd.read_csv('Mega-Sena.csv', sep=';', encoding='latin-1')
         df.columns = [c.strip() for c in df.columns]
-        
-        # Converte Concurso e Bolas para numérico, removendo erros
-        for col in ['Concurso', 'Bola1', 'Bola2', 'Bola3', 'Bola4', 'Bola5', 'Bola6']:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-        
-        df = df.dropna(subset=['Concurso', 'Bola1'])
-        
-        # Tenta API
-        try:
-            ultimo_csv = int(df['Concurso'].max())
-            r_ver = requests.get("https://loteriascaixa-api.herokuapp.com/api/megasena/latest", timeout=3).json()
-            ultimo_api = int(r_ver['concurso'])
-            
-            if ultimo_api > ultimo_csv:
-                novos = []
-                for i in range(ultimo_csv + 1, ultimo_api + 1):
-                    r = requests.get(f"https://loteriascaixa-api.herokuapp.com/api/megasena/{i}", timeout=3).json()
-                    novos.append({
-                        'Concurso': i, 'Data do Sorteio': r['data'],
-                        'Bola1': int(r['dezenas'][0]), 'Bola2': int(r['dezenas'][1]),
-                        'Bola3': int(r['dezenas'][2]), 'Bola4': int(r['dezenas'][3]),
-                        'Bola5': int(r['dezenas'][4]), 'Bola6': int(r['dezenas'][5])
-                    })
-                df = pd.concat([pd.DataFrame(novos), df], ignore_index=True)
-        except:
-            pass # Se a API falhar, o app abre com o que tem no CSV
-            
-        return df
+        df['Concurso'] = pd.to_numeric(df['Concurso'], errors='coerce')
+        return df.dropna(subset=['Concurso'])
     except Exception as e:
-        st.error(f"Erro crítico ao ler o arquivo: {e}")
+        st.error(f"Erro ao carregar o arquivo CSV: {e}")
         return pd.DataFrame()
 
-# --- Restante do código (IA, Fechamento, Simulador) ---
-df = carregar_e_atualizar_dados()
-
-if not df.empty:
-    st.title("🍀 IA Mega-Sena Profissional")
+def analisar_estatisticas(df):
+    colunas_dezenas = ['Bola1', 'Bola2', 'Bola3', 'Bola4', 'Bola5', 'Bola6']
+    ultimo_concurso = df['Concurso'].max()
+    todos_numeros = df[colunas_dezenas].values.flatten()
     
-    # Lógica de estatísticas
-    cols_b = ['Bola1', 'Bola2', 'Bola3', 'Bola4', 'Bola5', 'Bola6']
-    ultimo_c = df['Concurso'].max()
-    todos_n = df[cols_b].values.flatten()
-    freq = pd.Series(todos_n).value_counts().reindex(range(1, 61), fill_value=0)
+    freq = pd.Series(todos_numeros).value_counts().reindex(range(1, 61), fill_value=0)
     
     atrasos = {}
     for n in range(1, 61):
-        idx = df[df[cols_b].isin([n]).any(axis=1)]['Concurso']
-        atrasos[n] = int(ultimo_c - idx.max()) if not idx.empty else int(ultimo_c)
-    atrasos = pd.Series(atrasos)
+        ultimo_sorteio_n = df[df[colunas_dezenas].isin([n]).any(axis=1)]['Concurso'].max()
+        atrasos[n] = int(ultimo_concurso - ultimo_sorteio_n) if not pd.isna(ultimo_sorteio_n) else int(ultimo_concurso)
+    
+    return freq, pd.Series(atrasos)
 
-    tab1, tab2, tab3 = st.tabs(["🚀 Gerador IA", "📐 Fechamento", "🔍 Simulador"])
+# --- INTERFACE PRINCIPAL ---
+st.title("🎰 IA Mega-Sena Profissional")
+
+df = carregar_dados()
+if not df.empty:
+    freq, atrasos = analisar_estatisticas(df)
+
+    # Criação das 3 abas
+    tab1, tab2, tab3 = st.tabs(["🚀 Gerador IA", "📐 Fechamento", "🔍 Simulador Histórico"])
 
     with tab1:
-        c1, c2 = st.columns([1, 2])
-        with c1:
-            fator = st.slider("Equilíbrio Freq/Atraso", 0.0, 1.0, 0.5)
-            n_jogos = st.number_input("Jogos", 1, 20, 5)
-            if st.button("Gerar 🍀"):
-                p = ((freq/freq.max())*(1-fator)) + ((atrasos/atrasos.max())*fator)
-                p = (p+0.01)/p.sum()
-                st.session_state['jogos'] = [sorted(np.random.choice(range(1,61), 6, False, p)) for _ in range(n_jogos)]
-        with c2:
-            if 'jogos' in st.session_state:
-                for j in st.session_state['jogos']:
-                    st.success(f"🍀 Jogo: {' - '.join([f'{x:02d}' for x in j])}")
+        st.subheader("Sugestão Baseada em Probabilidades")
+        col_a, col_b = st.columns([1, 2])
+        with col_a:
+            fator_atraso = st.slider("Peso do Atraso (Números sumidos)", 0.0, 1.0, 0.5)
+            qtd_jogos = st.number_input("Quantidade de jogos", 1, 20, 5)
+            if st.button("Gerar Jogos IA"):
+                pesos = ( (freq / freq.max()) * (1 - fator_atraso) ) + ( (atrasos / atrasos.max()) * fator_atraso )
+                pesos = (pesos + 0.01) / (pesos.sum() + 0.6)
+                jogos = [sorted(np.random.choice(range(1, 61), size=6, replace=False, p=pesos)) for _ in range(qtd_jogos)]
+                st.session_state['ia_jogos'] = jogos
+        with col_b:
+            if 'ia_jogos' in st.session_state:
+                for j in st.session_state['ia_jogos']:
+                    st.success(f"**Jogo:** {' - '.join([f'{n:02d}' for n in j])}")
 
-    # (Módulos de Fechamento e Simulador simplificados para evitar erros)
     with tab2:
-        sel = st.multiselect("Dezenas (7-12):", range(1,61), default=range(1,11))
-        if len(sel) >= 7:
+        st.subheader("Fechamento Matemático")
+        selecionados = st.multiselect("Selecione de 7 a 12 números:", options=list(range(1, 61)), default=list(range(1, 11)))
+        if len(selecionados) >= 7:
+            total_comb = len(list(itertools.combinations(selecionados, 6)))
+            st.write(f"Combinações possíveis: {total_comb}")
+            amostra = st.slider("Visualizar quantos jogos?", 1, min(total_comb, 100), 10)
             if st.button("Gerar Fechamento"):
-                comb = list(itertools.combinations(sel, 6))
-                for i, j in enumerate(random.sample(comb, min(len(comb), 15))):
-                    st.code(f"Jogo {i+1:02d}: {' - '.join([f'{x:02d}' for x in sorted(j)])}")
+                jogos_f = random.sample(list(itertools.combinations(selecionados, 6)), amostra)
+                for i, jogo in enumerate(jogos_f):
+                    st.code(f"Jogo {i+1:02d}: {' - '.join([f'{n:02d}' for n in sorted(jogo)])}")
 
     with tab3:
-        teste = st.multiselect("Seu jogo:", range(1,61), max_selections=6)
-        if len(teste) == 6:
+        st.subheader("Simulador de Resultados")
+        st.write("Verifique se o seu jogo já teria ganho alguma vez no passado.")
+        meu_jogo = st.multiselect("Escolha 6 números para testar:", options=list(range(1, 61)), max_selections=6)
+        
+        if len(meu_jogo) == 6:
             if st.button("Simular"):
-                df['Hits'] = df[cols_b].apply(lambda x: len(set(teste).intersection(set(x))), axis=1)
-                st.write(f"Senas: {len(df[df.Hits==6])} | Quinas: {len(df[df.Hits==5])} | Quadras: {len(df[df.Hits==4])}")
-                if df.Hits.max() >= 4: st.dataframe(df[df.Hits >= 4][['Concurso','Hits']])
+                meu_set = set(meu_jogo)
+                cols_bolas = ['Bola1', 'Bola2', 'Bola3', 'Bola4', 'Bola5', 'Bola6']
+                
+                # Comparação com todo o histórico
+                df['Acertos'] = df[cols_bolas].apply(lambda row: len(meu_set.intersection(set(row))), axis=1)
+                
+                res = df['Acertos'].value_counts()
+                sena = res.get(6, 0)
+                quina = res.get(5, 0)
+                quadra = res.get(4, 0)
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Senas", sena)
+                c2.metric("Quinas", quina)
+                c3.metric("Quadras", quadra)
+                
+                if sena > 0 or quina > 0 or quadra > 0:
+                    st.balloons()
+                    st.write("### Detalhes das Vitórias Passadas:")
+                    st.dataframe(df[df['Acertos'] >= 4][['Concurso', 'Data do Sorteio', 'Acertos']])
+                else:
+                    st.warning("Este jogo nunca premiou (4, 5 ou 6 acertos) no histórico oficial.")
 
-st.caption(f"Último Concurso: {df['Concurso'].max() if not df.empty else 'Erro'}")
+st.divider()
+st.caption(f"Dados atualizados até o Concurso: {df['Concurso'].max() if not df.empty else 'N/A'}")
